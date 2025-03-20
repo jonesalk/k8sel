@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+die() {
+    echo "$@" >&2
+    exit 1
+}
+
+set -eo pipefail
+
+for cmd in fzf yq; do
+  command -v "$cmd" >/dev/null || die "Required command $cmd not found."
+done
+
+yq_filter() {
+  # transform args of kind/name@namespace to yq select
+  filter=$(yq -r '
+  split(" ") | map(
+    match("(.*)/(.*)@(.*)").captures | map(.string)
+     | "(.kind==\"\(.[0])\" " +
+        "and .metadata.name==\"\(.[1])\" " +
+        "and (.metadata.namespace // \"default\")==\"\(.[2])\" )"
+    ) | join " or "'  <<< "$@")
+  printf "select( %s )" "$filter"
+}
+
+
+get_resources() {
+  # generate the filter and apply to the input yaml
+  filter=$(yq_filter "$@")
+  yq e "$filter" "$input_yaml"
+}
+
+export -f yq_filter
+export -f get_resources
+
+run() {
+  set -e
+  # extract kind/name@namespace from input
+  yq '.metadata.namespace=.metadata.namespace // "default" | "\(.kind)/\(.metadata.name)@\(.metadata.namespace)"' "$input_yaml" \
+    | fzf --no-height --no-reverse -m --preview 'bash -c "get_resources {} | yq -C "' \
+    | xargs bash -c 'get_resources "$0" "$@"'  # print the selected resources
+
+}
+
+if [ "$0" == $BASH_SOURCE ]; then
+  # either read from input_yaml or arg 1
+  case "$1" in
+    -h|--help)
+      echo "Usage: k8sel [input.yaml]"
+      echo '
+Interactively filter k8s resources from multi document yaml using fzf
+
+i.e.
+*  k8sel input.yaml
+*  helm template | k8sel  | kubectl apply -f -
+
+FZF hints:
+  Search syntax: https://github.com/junegunn/fzf?tab=readme-ov-file#search-syntax
+  TAB/ SHIFT-TAB: select/deselect resource for inclusion in final output
+  ARROW UP/DOWN: navigate resources list
+  ENTER: output selected resources as yaml
+  ESC/CTRL-C: exit without output
+  SHIFT-ARROW UP/DOWN: scroll preview window
+'
+      exit 0
+      ;;
+    "")
+      input_yaml=$(mktemp)
+      cat > "$input_yaml"
+      ;;
+    *)
+      [ -f "$1" ]  || die "Input file $1 not found"
+      input_yaml=$1
+      ;;
+
+  esac
+  # check that the input is parsable k8s yaml
+  [ "$(yq ea '[ .kind] | length ' "$input_yaml" )" -eq 0 ] && die "Input doesn't seem to be valid k8s yaml"
+  export input_yaml
+  run
+fi
+
