@@ -39,6 +39,8 @@ You can ofc pipe the result to other tools. i.e. `kubectl`
 
 Pressing ctrl-space with some selected resources, will instead of printing the resources, update the commandline with the corresponding k8sel command. This allows you to first inspect the yaml, and then finalize your updates. If the initial k8sel input was from stdin, a temporary file is used.
 
+If your are running bash, you need to have perl installed for the commandline updating to work :/
+
 
 
 ## Usage:
