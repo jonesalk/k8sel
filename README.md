@@ -1,6 +1,6 @@
 # k8sel
 
-Simple bash/zsh function to interactively filter and inspect k8s resources in "multi document" yaml by `kind/name@namespace`,
+Bash/zsh function to interactively filter and inspect k8s resources in "multi document" yaml by `kind/name@namespace`,
 all thanks to the awsome tools: [fzf](https://github.com/junegunn/fzf) and [yq](https://github.com/mikefarah/yq)
 
 Example
@@ -24,6 +24,8 @@ Example
    source k8sel
 
    ```
+   (you likely want to update your ~/.zshrc or ~/.bashrc file with 'source <path_to_k8sel>')
+
 3. Try it out with the sample yaml
    ```
    curl https://raw.githubusercontent.com/jonesalk/k8sel/refs/heads/main/sample.yaml | ./k8sel
