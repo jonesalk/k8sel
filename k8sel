@@ -1,81 +1,118 @@
 #!/usr/bin/env bash
-die() {
-    echo "$@" >&2
-    exit 1
-}
+k8sel() {
+  die() {
+      echo "$@" >&2
+      return 1
+  }
+  update_cmd_line() {
+    if [ -n "$ZSH_EVAL_CONTEXT" ]; then
+        print -z -- "$@"
+    else
+      perl -e 'ioctl STDOUT, 0x5412, $_ for split //, do{ chomp($_ = <>); $_ }' <<< "$@"
+    fi
+  }
+  local source_file=""
+  if [ -n "$ZSH_EVAL_CONTEXT" ]; then
+    source_file="${(%):-%x}"
+  elif [ -n "$BASH_SOURCE" ]; then
+    source_file="${BASH_SOURCE[0]}"
+  else
+    die "Only bash and zsh are supported, not $SHELL"
+  fi
+  source_file=$(realpath "$source_file")
 
-set -eo pipefail
+  local input_yaml resources resource_parsing
 
-for cmd in fzf yq; do
-  command -v "$cmd" >/dev/null || die "Required command $cmd not found."
-done
-
-yq_filter() {
-  # transform args of kind/name@namespace to yq select
-  filter=$(yq -r '
-  split(" ") | map(
-    match("(.*)/(.*)@(.*)").captures | map(.string)
-     | "(.kind==\"\(.[0])\" " +
-        "and .metadata.name==\"\(.[1])\" " +
-        "and (.metadata.namespace // \"default\")==\"\(.[2])\" )"
-    ) | join " or "'  <<< "$@")
-  printf "select( %s )" "$filter"
-}
-
-
-get_resources() {
-  # generate the filter and apply to the input yaml
-  filter=$(yq_filter "$@")
-  yq e "$filter" "$input_yaml"
-}
-
-export -f yq_filter
-export -f get_resources
-
-run() {
-  set -e
-  # extract kind/name@namespace from input
-  yq '.metadata.namespace=.metadata.namespace // "default" | "\(.kind)/\(.metadata.name)@\(.metadata.namespace)"' "$input_yaml" \
-    | fzf --no-height --no-reverse -m --preview 'bash -c "get_resources {} | yq -C "' \
-    | xargs bash -c 'get_resources "$0" "$@"'  # print the selected resources
-
-}
-
-if [ "$0" == $BASH_SOURCE ]; then
-  # either read from input_yaml or arg 1
-  case "$1" in
-    -h|--help)
-      echo "Usage: k8sel [input.yaml]"
-      echo '
+  resource_parsing=false
+  org_arg="$@"
+  while [[ $# -gt 0  ]]; do
+    case "$1" in
+      -h|--help)
+        echo "Usage: k8sel [[-f] yamlfile] [-r resource ...]"
+        echo '
 Interactively filter k8s resources from multi document yaml using fzf
+Options:
+  -f: filename to read from. If not supplied, reads from stdin.
+      The -f flag is only needed to end collection of resources, "k8sel test.yaml" is valid
+  -r: filter resource by kind/name@namespace - multiple allowed. If supplied, no interactive selection
+  -h: show this help
+  '
+        return 0
+        ;;
+#      -u)
+#        update_cmd_line "$(sed 's/\s-u\s?//' <<< $org_arg)"
+#        return 0
+#        ;;
+      -r)
+        resource_parsing=true
+        ;;
+      -f)
+        resource_parsing=false
+        ;;
+      *)
+        if [ "$resource_parsing" = true ]; then
+          resources+="$1 "
+        else
+          [ -z "$input_yaml" ] || die "Only one input file allowed"
+          [ -f "$1" ]  || die "Input file $1 not found"
+          input_yaml=$1
+        fi
+        ;;
+    esac
+    shift
+  done
+  filter() {
+    # generate the filter and apply to the input yaml
+    filter=$(yq -r '
+      split(" ") | map(
+        match("(.*)/(.*)@(.*)").captures | map(.string)
+         | "(.kind==\"\(.[0])\" " +
+            "and .metadata.name==\"\(.[1])\" " +
+            "and (.metadata.namespace // \"default\")==\"\(.[2])\" )"
+        ) | join " or "
+        '  <<< "$@")
+    yq e "select($filter)" "$input_yaml"
+  }
 
-i.e.
-*  k8sel input.yaml
-*  helm template | k8sel  | kubectl apply -f -
+  run_interactive() {
+    # extract kind/name@namespace from input
 
-FZF hints:
-  Search syntax: https://github.com/junegunn/fzf?tab=readme-ov-file#search-syntax
-  TAB/ SHIFT-TAB: select/deselect resource for inclusion in final output
-  ARROW UP/DOWN: navigate resources list
-  ENTER: output selected resources as yaml
-  ESC/CTRL-C: exit without output
-  SHIFT-ARROW UP/DOWN: scroll preview window
-'
-      exit 0
-      ;;
-    "")
-      input_yaml=$(mktemp)
-      cat > "$input_yaml"
-      ;;
-    *)
-      [ -f "$1" ]  || die "Input file $1 not found"
-      input_yaml=$1
-      ;;
+    res=$(yq '.metadata.namespace=.metadata.namespace // "default" | "\(.kind)/\(.metadata.name)@\(.metadata.namespace)"' "$input_yaml" \
+      | fzf --no-height --no-reverse -m \
+        --bind "ctrl-space:become(echo {+} ; exit 10 )" \
+        --preview "(source $source_file ; k8sel -f $input_yaml -r {} | yq -C )"
+    )
+    retcode=$?
+    case $retcode in
+      0)
+        filter $input_yaml -r $res
+        ;;
+      10)
+        # ctrl-space: update the next command line, so that user can run the command throug some other filter or similar
+        # print -z  "k8sel $input_yaml -r $res"
+        update_cmd_line "k8sel $input_yaml -r $res"
+        ;;
+      *)
+        return $retcode
+        ;;
+    esac
 
-  esac
-  # check that the input is parsable k8s yaml
+  }
+
+  # either read from input_yaml or arg 1
+  if [ -z "$input_yaml" ]; then
+        # read from stdin
+        input_yaml=$(mktemp)
+        cat > "$input_yaml"
+  fi
+
+  # check that the input is parsable k8s yaml  # check that the input is parsable k8s yaml
   [ "$(yq ea '[ .kind] | length ' "$input_yaml" )" -eq 0 ] && die "Input doesn't seem to be valid k8s yaml"
-  export input_yaml
-  run
-fi
+
+  if [ -n "$resources"  ]; then
+    filter "$input_yaml" -r $resources  || die "failed to filter resources using $resources exit-code"
+  else
+    run_interactive
+  fi
+}
 
