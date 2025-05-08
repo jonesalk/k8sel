@@ -80,6 +80,7 @@ Options:
     res=$(yq '.metadata.namespace=.metadata.namespace // "default" | "\(.kind)/\(.metadata.name)@\(.metadata.namespace)"' "$input_yaml" \
       | fzf --no-height --no-reverse -m \
         --bind "ctrl-space:become(echo {+} ; exit 10 )" \
+        --bind "ctrl-f:execute(source $source_file ; k8sel -f $input_yaml -r {+} | yq -C | less)" \
         --preview "(source $source_file ; k8sel -f $input_yaml -r {} | yq -C )"
     )
     retcode=$?
