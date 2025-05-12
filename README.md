@@ -28,10 +28,10 @@ Example
 
 3. Try it out with the sample yaml
    ```
-   curl https://raw.githubusercontent.com/jonesalk/k8sel/refs/heads/main/sample.yaml | ./k8sel
+   curl https://raw.githubusercontent.com/jonesalk/k8sel/refs/heads/main/sample.yaml | k8sel
    ```
    1. start typing to narrow the list with matching entries (i.e. 'dns')
-   2. use arrow keys to choose which resouce is shown in the preview (shift arrow keys to scroll)
+   2. use arrow keys to choose which resouce is shown in the preview (shift arrow keys to scroll, ctrl-f to show resource in less)
    3. press tab to select one or more resource
    4. press enter to print just the selected resources, or ctrl-c to just exit.
 
@@ -76,7 +76,8 @@ Arrow up/down | Navigate resources list
 Enter | Exit and output selected resources as multi document yaml
 Esc / CTRL-C| Exit without output
 Shift + Arrow up/down | scroll preview window
-ctrl-space | Exit and update commandline with k8sel command targeting the selected resources
+CTRL-SPACE | Exit and update commandline with k8sel command targeting the selected resources
+CTRL-F | Temporarily show selected resource(s) in less
 
 
 ## Known Issues
