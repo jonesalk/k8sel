@@ -77,7 +77,7 @@ Options:
   run_interactive() {
     # extract kind/name@namespace from input
 
-    res=$(yq '.metadata.namespace=.metadata.namespace // "default" | "\(.kind)/\(.metadata.name)@\(.metadata.namespace)"' "$input_yaml" \
+    res=$( yq 'del(select(has("kind")|not))' "$input_yaml" | yq '.metadata.namespace=.metadata.namespace // "default" | "\(.kind)/\(.metadata.name)@\(.metadata.namespace)"' \
       | fzf --no-height --no-reverse -m \
         --bind "ctrl-space:become(echo {+} ; exit 10 )" \
         --bind "ctrl-f:execute(source $source_file ; k8sel -f $input_yaml -r {+} | yq -C | less)" \
