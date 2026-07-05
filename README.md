@@ -14,51 +14,62 @@ Example
 ## Install
 
 1. Make sure you already have
-   * [fzf](https://github.com/junegunn/fzf) (only tested with version 0.55.0)
-   * [yq](https://github.com/mikefarah/yq)  (only tested with v4.44.6)
+   * [fzf](https://github.com/junegunn/fzf)
+   * [yq](https://github.com/mikefarah/yq)
 
+### Option A: Standalone script (bash/zsh, any pipeline)
 
-2. Download and source the [script](k8sel)
-   ```
-   curl https://raw.githubusercontent.com/jonesalk/k8sel/refs/heads/main/k8sel -o k8sel
-   source k8sel
+Download the script to somewhere on your `PATH`:
+```
+curl https://raw.githubusercontent.com/jonesalk/k8sel/refs/heads/main/k8sel -o ~/.local/bin/k8sel
+chmod +x ~/.local/bin/k8sel
+```
 
-   ```
-   (you likely want to update your ~/.zshrc or ~/.bashrc file with 'source <path_to_k8sel>')
+Try it out:
+```
+curl https://raw.githubusercontent.com/jonesalk/k8sel/refs/heads/main/sample.yaml | k8sel
+```
 
-3. Try it out with the sample yaml
-   ```
-   curl https://raw.githubusercontent.com/jonesalk/k8sel/refs/heads/main/sample.yaml | k8sel
-   ```
-   1. start typing to narrow the list with matching entries (i.e. 'dns')
-   2. use arrow keys to choose which resouce is shown in the preview (shift arrow keys to scroll, ctrl-f to show resource in less)
-   3. press tab to select one or more resource
-   4. press enter to print just the selected resources, or ctrl-c to just exit.
+Works anywhere — scripts, pipelines, any shell:
+```
+helm template dev bitnami/airflow --namespace af-dev | k8sel | kubectl apply -f -
+k8sel my.yaml -r Deployment/foo@default Service/bar@default
+```
 
-You can ofc pipe the result to other tools. i.e. `kubectl`
+### Option B: oh-my-zsh plugin (adds Alt-Enter prompt injection)
 
-Pressing ctrl-space with some selected resources, will instead of printing the resources, update the commandline with the corresponding k8sel command. This allows you to first inspect the yaml, and then finalize your updates. If the initial k8sel input was from stdin, a temporary file is used.
+Clone the repo into your oh-my-zsh custom plugins directory:
+```
+git clone https://github.com/jonesalk/k8sel ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/k8sel
+```
 
-If your are running bash, you need to have perl installed for the commandline updating to work :/
+Add `k8sel` to the plugins list in `~/.zshrc`:
+```
+plugins=(... k8sel)
+```
+
+The plugin looks for the `k8sel` binary on `PATH` first. If not found, it falls back to the `k8sel` script in the plugin directory itself — so no separate install step is needed when using this option.
+
+Reload your shell:
+```
+exec zsh
+```
 
 
 
 ## Usage:
 
 ```
-Usage: k8sel [[-f] yamlfile] [-r resource ...]
+Usage: k8sel [input.yaml] [-r kind/name@ns ...]
 
 Interactively filter k8s resources from multi document yaml using fzf
 
 Options:
-  -f: filename to read from. If not supplied, reads from stdin.
-      The -f flag is only needed to end collection of resources, "k8sel test.yaml" is valid
-  -r: filter resource by kind/name@namespace - multiple allowed. If supplied, no interactive selection
+  -r: filter resource by kind/name@namespace - multiple allowed.
+      If supplied, outputs matching resources directly (no interactive selection).
   -h: show this help
 
-Reads from stdin if no filename provided
-
-
+Reads from stdin if no filename provided.
 ```
 
 
@@ -71,21 +82,20 @@ Using the 'finder':
 
 Key | Action
 ----|-------
-Tab / Shift+Tab |  Select/deselect resource for inclusion in final output
+Tab / Shift+Tab | Select/deselect resource for inclusion in final output
 Arrow up/down | Navigate resources list
-Enter | Exit and output selected resources as multi document yaml
-Esc / CTRL-C| Exit without output
-Shift + Arrow up/down | scroll preview window
-CTRL-SPACE | Exit and update commandline with k8sel command targeting the selected resources
-CTRL-F | Temporarily show selected resource(s) in less
+Enter | Output selected resources as multi document yaml
+Alt+Enter | Put re-runnable `k8sel <file> -r <selections>` onto the prompt (oh-my-zsh plugin only)
+Ctrl+F | Open selected resource(s) in less
+Esc / Ctrl+C | Exit without output
+Shift+Arrow up/down | Scroll preview window
 
 
 ## Known Issues
 
-The k8s api doesn't return multiple documents, but the resources are wrapped in a `kind: List` which has the resources in the `items` array, which the script doesn't handle atm. As an workaround, convert the list elements to documents using `yq '.items[] | split_doc'` before feeding to k8sel - i.e.
+None currently.
 
-``` 
-kubectl get cm --all-namespaces -o yaml | yq '.items[] | split_doc' | k8sel
-```
-
-Should probably auto-detect this (PR's are welcome ;)
+> **Previously:** The k8s API wraps `kubectl get ... -o yaml` responses in a `kind: List` with resources in `.items[]`. k8sel now auto-detects this and unwraps the list automatically, so the following pattern works directly:
+> ```
+> kubectl get cm --all-namespaces -o yaml | k8sel
+> ```
