@@ -32,12 +32,15 @@ export -f get_resources
 
 run() {
   # extract kind/name@namespace from input, run fzf, branch on exit code
-  local selection rc=0
-  selection=$(yq '.metadata.namespace=.metadata.namespace // "default" | "\(.kind)/\(.metadata.name)@\(.metadata.namespace)"' "$input_yaml" \
+  
+  local selection rc=0 
+  selection=$( yq '.metadata.namespace=.metadata.namespace // "default" | "\(.kind)/\(.metadata.name)@\(.metadata.namespace)"' "$input_yaml" \
     | fzf --no-reverse -m \
-        --bind "alt-enter:become(echo {+} ; exit 10)" \
-        --bind "ctrl-f:execute(get_resources {+} | yq -C | less -R)" \
-        --preview 'bash -c "get_resources {} | yq -C"') || rc=$?
+        --bind "enter:become(printf '%s\n' {+})" \
+        --bind "alt-enter:become(printf '%s\n' {+} ; exit 10)" \
+        --bind "ctrl-f:execute(less -f <(bash -c 'get_resources \"$input_yaml\" {+}') < /dev/tty > /dev/tty 2>&1 )" \
+        --preview "bash -c 'get_resources \"$input_yaml\" {}'" \
+        --preview-window "right:50%:wrap") || rc=$?
 
   case $rc in
     0)
@@ -45,10 +48,9 @@ run() {
       echo "$selection" | xargs bash -c 'get_resources "$0" "$@"'
       ;;
     10)
-      # alt-enter: print just the kind/name@ns identifiers, exit 10 so
-      # a wrapper (e.g. the k8sel oh-my-zsh plugin) can inject a re-runnable
-      # command onto the shell prompt via `print -z`
-      echo "$selection"
+      # alt-enter: build the re-runnable commandline and deliver it to caller - oh-my-zsh will update command line.
+      selection=${selection//$'\n'/ }
+      printf 'k8sel %q -r %s' "$input_yaml" "${selection}"
       return 10
       ;;
     *)
@@ -58,6 +60,7 @@ run() {
 }
 
 if [ "$0" == $BASH_SOURCE ]; then
+  unset input_yaml  # clear any inherited env from a parent k8sel invocation
   resources=""
   resource_parsing=false
 
@@ -109,9 +112,11 @@ FZF hints:
     shift
   done
 
+  yaml_from_stdin=false
   if [ -z "$input_yaml" ]; then
     input_yaml=$(mktemp)
     cat > "$input_yaml"
+    yaml_from_stdin=true
   fi
 
   # check that the input is parsable k8s yaml
@@ -136,5 +141,6 @@ FZF hints:
     get_resources $resources
   else
     run
+    exit $?
   fi
 fi

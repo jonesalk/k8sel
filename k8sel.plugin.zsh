@@ -27,47 +27,25 @@ k8sel() {
     emulate -L zsh
     setopt localoptions no_aliases pipefail
 
-    # Passthrough: if either end of stdio is not a TTY (piped input or piped
-    # output), or -h/--help/-r are given, the alt-enter re-run trick doesn't
-    # make sense. Just exec the binary transparently.
-    if [[ ! -t 0 || ! -t 1 ]]; then
-        "$_k8sel_bin" "$@"
-        return
-    fi
+    # Passthrough if non -h/--help/-r are given
     for arg in "$@"; do
         case $arg in
             -h|--help|-r) "$_k8sel_bin" "$@"; return ;;
         esac
     done
 
-    # Locate the yaml file argument (if any) so we can reconstruct the
-    # command for `print -z` in the alt-enter case.
-    local yaml_file=""
-    for arg in "$@"; do
-        if [[ -f $arg ]]; then
-            yaml_file=$arg
-            break
-        fi
-    done
-
     local out rc=0
-    out=$("$_k8sel_bin" "$@") || rc=$?
 
+    # Run the binary inside a command substitution so we can capture stdout.
+    # - Normal enter (rc=0): binary outputs selected YAML → we print it.
+    # - Alt-enter (rc=10):  push out  onto the next prompt with print -z.
+    out=$("$_k8sel_bin" "$@") || rc=$?
     case $rc in
         0)
-            # Normal enter: print the selected YAML (or nothing).
             [[ -n $out ]] && print -r -- "$out"
             ;;
         10)
-            # Alt-Enter: `$out` is a newline-separated list of kind/name@ns
-            # identifiers. Rebuild a re-runnable command onto the prompt.
-            local -a ids
-            ids=(${(f)out})
-            if [[ -z $yaml_file ]]; then
-                print -u2 -- "k8sel: cannot inject re-run command (no yaml file arg)"
-                return 1
-            fi
-            print -z -- "k8sel ${(q)yaml_file} -r ${(j: :)${(q)ids}}"
+            [[ -n $out ]] && print -z -- "$out"
             ;;
         *)
             return $rc
